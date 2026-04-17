@@ -10,21 +10,22 @@ int main() {
 
     // configuracion de camara
     Camera3D camera = { 0 };
-    camera.position = { 0.0f, 15.0f, 50.0f }; 
+    camera.position = { 0.0f, 15.0f, 100.0f }; 
     camera.target = { 0.0f, 0.0f, 0.0f };      
     camera.up = { 0.0f, 1.0f, 0.0f };          
     camera.fovy = 45.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
     double scale = 1e-6; 
-    double dt = 100.0; 
+    double dt = 150.0; 
 
     // tierra y satelite
     Phys::Body earth("Tierra", 5.972e24, Phys::Vector3(0, 0, 0), Phys::Vector3(0, 0, 0));
-    Phys::Body sat("Sputnik", 1000.0, Phys::Vector3(8000000, 0, 0), Phys::Vector3(0, 0, 7500));
+    Phys::Body sat("Sputnik", 1000.0, Phys::Vector3(10000000, 0, 0), Phys::Vector3(0, 0, 6500));
+    Phys::Body moon("Luna", 7.347e22, Phys::Vector3(40000000, 0, 0), Phys::Vector3(0, 0, 3100)); // se añade la luna LOLXD
 
     std::vector<Vector3> trail;
-    const int maxTrailPoints = 1500; 
+    const int maxTrailPoints = 2000; 
 
     SetTargetFPS(60);
     DisableCursor(); // cursor oculto asi no moleste
@@ -35,15 +36,28 @@ int main() {
         UpdateCamera(&camera, CAMERA_THIRD_PERSON);
 
         // fisica
-        Phys::Vector3 force = sat.calculateGravitationalForce(earth);
-        sat.applyForce(force);
+        // A- fuerza sobre el satelite (tierra + luna)
+        Phys::Vector3 fEarthToSat = sat.calculateGravitationalForce(earth);
+        Phys::Vector3 fMoonToSat = sat.calculateGravitationalForce(moon);
+        sat.applyForce(fEarthToSat + fMoonToSat);
+
+        // B- fuerza sobre la Luna solo la tierra
+        Phys::Vector3 fEarthToMoon = moon.calculateGravitationalForce(earth);
+        moon.applyForce(fEarthToMoon);
+
         sat.update(dt);
+        moon.update(dt);
 
         // logica de la estela de rastro
         Vector3 currentSatPos = { 
             static_cast<float>(sat.position.x * scale), 
             static_cast<float>(sat.position.y * scale), 
             static_cast<float>(sat.position.z * scale) 
+        };
+        Vector3 currentMoonPos = { // logica de luna
+            static_cast<float>(moon.position.x * scale),
+            static_cast<float>(moon.position.y * scale),
+            static_cast<float>(moon.position.z * scale)
         };
 
         trail.push_back(currentSatPos);
@@ -57,28 +71,33 @@ int main() {
             BeginMode3D(camera);
                 
                 // grilla distorsionada | espacio-tiempo
-                const int gridCount = 41; 
-                const float gridSpacing = 2.5f; 
+                const int gridCount = 81;
+                const float gridSpacing = 2.0f; 
                 const float visualDepthExaggeration = 8.0f; 
 
-                Vector3 gridPoints[gridCount][gridCount];
+                static std::vector<std::vector<Vector3>> gridPoints(gridCount, std::vector<Vector3>(gridCount));
 
-                // calculo del hundimiento por cada punto
                 for (int i = 0; i < gridCount; i++) {
                     for (int j = 0; j < gridCount; j++) {
                         float x = (i - gridCount/2) * gridSpacing;
                         float z = (j - gridCount/2) * gridSpacing;
                         float y = 0.0f;
 
-                        float distEarth2 = x*x + z*z + 8.0f; 
-                        float visualEarthDepth = (10.0f * visualDepthExaggeration) / std::sqrt(distEarth2);
-                        y -= visualEarthDepth;
+                        // distorsion tierra
+                        float dE2 = x*x + z*z + 8.0f;
+                        y -= (10.0f * visualDepthExaggeration) / std::sqrt(dE2);
 
-                        float dxSat = x - currentSatPos.x;
-                        float dzSat = z - currentSatPos.z;
-                        float distSat2 = dxSat*dxSat + dzSat*dzSat + 0.5f;
-                        float visualSatDepth = (5.0f * visualDepthExaggeration) / std::sqrt(distSat2);
-                        y -= visualSatDepth;
+			            //distrosion luna
+                        float dxM = x - currentMoonPos.x;
+                        float dzM = z - currentMoonPos.z;
+                        float dM2 = dxM*dxM + dzM*dzM + 2.0f;
+                        y -= (3.5f * visualDepthExaggeration) / std::sqrt(dM2);
+
+			            //distorsion satelite
+                        float dxS = x - currentSatPos.x;
+                        float dzS = z - currentSatPos.z;
+                        float dS2 = dxS*dxS + dzS*dzS + 0.5f;
+                        y -= (1.0f * visualDepthExaggeration) / std::sqrt(dS2);
 
                         gridPoints[i][j] = { x, y, z };
                     }
@@ -86,29 +105,35 @@ int main() {
 
                 for (int i = 0; i < gridCount; i++) {
                     for (int j = 0; j < gridCount; j++) {
-                        if (i < gridCount - 1) DrawLine3D(gridPoints[i][j], gridPoints[i+1][j], Fade(DARKGRAY, 0.4f));
-                        if (j < gridCount - 1) DrawLine3D(gridPoints[i][j], gridPoints[i][j+1], Fade(DARKGRAY, 0.4f));
+                        if (i < gridCount - 1) 
+                            DrawLine3D(gridPoints[i][j], gridPoints[i+1][j], Fade(DARKGRAY, 0.4f));
+                        if (j < gridCount - 1) 
+                            DrawLine3D(gridPoints[i][j], gridPoints[i][j+1], Fade(DARKGRAY, 0.4f));
                     }
                 }
 
-                DrawSphere({0, -1.5f, 0}, 2.0f, BLUE); // tierra
-                DrawSphereWires({0, -1.5f, 0}, 2.1f, 16, 16, Fade(DARKBLUE, 0.3f));
+                //tierra
+                DrawSphere({0, -1.5f, 0}, 2.0f, BLUE); 
+                
+                // luna
+                DrawSphere(currentMoonPos, 1.2f, GRAY);
+                DrawSphereWires(currentMoonPos, 1.3f, 10, 10, Fade(LIGHTGRAY, 0.3f));
 
+                // satelite y estela
+                DrawSphere(currentSatPos, 0.4f, WHITE);
                 if (trail.size() >= 2) {
                     for (size_t i = 0; i < trail.size() - 1; i++) {
-                        DrawLine3D(trail[i], trail[i + 1], Fade(RED, 0.7f));
+                        DrawLine3D(trail[i], trail[i+1], RED);
                     }
                 }
-
-                DrawSphere(currentSatPos, 0.4f, WHITE); // satelite
                 
             EndMode3D();
 
-            DrawRectangle(10, 10, 300, 100, Fade(SKYBLUE, 0.1f));
-            DrawText("GRAVITY WELL VISUALIZER", 20, 20, 15, Fade(YELLOW, 0.8f));
-            DrawText(TextFormat("Velocidad: %.0f km/h", (sat.velocity.magnitude() * 3.6)), 20, 50, 20, Fade(GREEN, 0.8f));
-            
-            DrawFPS(screenWidth - 100, 10);
+            DrawRectangle(10, 10, 350, 120, Fade(BLACK, 0.6f));
+            DrawText("ULTRA-HIGH FIDELITY SPACETIME", 20, 20, 15, YELLOW);
+            DrawText(TextFormat("Grid: %d x %d vertices", gridCount, gridCount), 20, 45, 12, GREEN);
+            DrawText(TextFormat("Dist. Luna: %.0f km", (moon.position - earth.position).magnitude() / 1000), 20, 65, 12, RAYWHITE);
+            DrawText(TextFormat("FPS: %d", GetFPS()), 20, 85, 20, SKYBLUE);
         EndDrawing();
     }
 
