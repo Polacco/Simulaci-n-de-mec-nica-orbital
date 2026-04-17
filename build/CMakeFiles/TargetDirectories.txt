@@ -1,0 +1,3 @@
+C:/Joaquin/mecanica-orbital/build/CMakeFiles/OrbitalSim.dir
+C:/Joaquin/mecanica-orbital/build/CMakeFiles/ALL_BUILD.dir
+C:/Joaquin/mecanica-orbital/build/CMakeFiles/ZERO_CHECK.dir
